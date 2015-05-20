@@ -12,6 +12,8 @@
 
 @interface FRPCell : UICollectionViewCell
 
--(void) setPhotoModel:(PhotoModel*) photoModel;
+//-(void) setPhotoModel:(PhotoModel*) photoModel;
+
+@property (nonatomic, strong) PhotoModel* photoModel;
 
 @end

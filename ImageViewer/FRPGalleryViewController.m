@@ -9,6 +9,7 @@
 #import<ReactiveCocoa/ReactiveCocoa.h>
 #import<libextobjc/EXTScope.h>
 #import<500px-iOS-api/PXAPI.h>
+#import<RACDelegateProxy.h>
 
 #import "FRPGalleryViewController.h"
 #import "FRPGalleryFlowLayout.h"
@@ -18,9 +19,10 @@
 
 
 
-@interface FRPGalleryViewController ()<FullSizePhotoViewControllerDelegate>
+@interface FRPGalleryViewController ()
 
 @property (nonatomic, strong) NSArray* photosArray;
+@property (nonatomic, strong) id collectionViewDelegate;
 
 @end
 
@@ -48,12 +50,43 @@ static NSString * const reuseIdentifier = @"Cell";
     self.title = @"Popular on 500px";
     
     @weakify(self);
-    [RACObserve(self, photosArray) subscribeNext:^(id x) {
+    /*[RACObserve(self, photosArray) subscribeNext:^(id x) {
+        @strongify(self);
+        [self.collectionView reloadData];
+    }];*/
+    
+    RACDelegateProxy* viewControllerDelegate = [[RACDelegateProxy alloc] initWithProtocol:@protocol(FullSizePhotoViewControllerDelegate)];
+    
+    [[viewControllerDelegate rac_signalForSelector:@selector(userDidScroll:toPhotoAtIndex:) fromProtocol:@protocol(FullSizePhotoViewControllerDelegate)] subscribeNext:^(RACTuple* value) {
+        @strongify(self);
+        [self.collectionView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:[value.second integerValue] inSection:0] atScrollPosition:UICollectionViewScrollPositionCenteredVertically animated:NO];
+    }];
+    
+    
+    self.collectionViewDelegate = [[RACDelegateProxy alloc] initWithProtocol:@protocol(UICollectionViewDelegate)];
+    
+    [[self.collectionViewDelegate rac_signalForSelector:@selector(collectionView:didSelectItemAtIndexPath:)] subscribeNext:^(RACTuple* arguments) {
+        @strongify(self);
+        NSInteger itemIndex = [(NSIndexPath*)arguments.second item];
+        FullSizePhotoViewController* viewController = [[FullSizePhotoViewController alloc] initWithPhotoModels:self.photosArray currentPhotoIndex:itemIndex];
+        viewController.delegate = (id<FullSizePhotoViewControllerDelegate>)viewControllerDelegate;
+        [self.navigationController pushViewController:viewController animated:YES];
+    }];
+    
+    self.collectionView.delegate = self.collectionViewDelegate;
+    
+    RACSignal* photoSignal = [FRPPhotoImporter importPhotos];
+    RACSignal* photoLoaded = [photoSignal catch:^RACSignal *(NSError *error) {
+        NSLog(@"Couldn't fetch photos from 500px:%@", error);
+        return [RACSignal empty];
+    }];
+    
+    RAC(self, photosArray) = photoLoaded;
+    [photoLoaded subscribeCompleted:^{
         @strongify(self);
         [self.collectionView reloadData];
     }];
-    
-    [self loadPopularPhotos];
+    //[self loadPopularPhotos];
 }
 
 -(void)loadPopularPhotos{
@@ -96,17 +129,6 @@ static NSString * const reuseIdentifier = @"Cell";
     [cell setPhotoModel:self.photosArray[indexPath.row]];
     
     return cell;
-}
-
--(void) userDidScroll:(FullSizePhotoViewController *)viewController toPhotoAtIndex:(NSInteger)index{
-    [self.collectionView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:index inSection:0]
-                                atScrollPosition:UICollectionViewScrollPositionCenteredVertically animated:NO];
-}
-
--(void) collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath{
-    FullSizePhotoViewController* viewController = [[FullSizePhotoViewController alloc] initWithPhotoModels:self.photosArray currentPhotoIndex:indexPath.item];
-    viewController.delegate = self;
-    [self.navigationController pushViewController:viewController animated:YES];
 }
 
 #pragma mark <UICollectionViewDelegate>
